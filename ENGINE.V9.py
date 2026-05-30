@@ -1,5 +1,3 @@
-# pylint: disable=invalid-name
-# (module file is named ENGINE.V9.py for historical/import reasons — C0103)
 """
 BLUESTAR ENGINE v9.1 — Deterministic Execution Engine (consolidated patch)
 ==========================================================================
@@ -40,9 +38,9 @@ logger = logging.getLogger("bluestar.v9")
 # SECTION 0 — OPTIONAL upstream import (graceful fallback, never blocking)
 # ════════════════════════════════════════════════════════════════════════════
 try:  # pragma: no cover
-    from merge_appbackup import Direction as _UpstreamDirection  # noqa: F401  # pylint: disable=import-error
+    from merge_appbackup import Direction as _UpstreamDirection  # noqa: F401
     _HAS_UPSTREAM = True
-except Exception:  # pylint: disable=broad-exception-caught
+except Exception:
     _HAS_UPSTREAM = False
 
 
@@ -69,7 +67,7 @@ class EventTier(str, Enum):
 
 
 class GateCode(str, Enum):
-    PASS = "PASS"  # nosec B105 — gate code label, not a password
+    PASS = "PASS"
     G0_SCHEMA_ASSET_ERROR = "SCHEMA_ASSET_ERROR"
     G1_CAL_BLACKOUT = "CAL_BLACKOUT"
     G2_LOW_QUALITY = "LOW_QUALITY"
@@ -127,8 +125,7 @@ def _safe_float(v: Any) -> Optional[float]:
         if v is None:
             return None
         f = float(v)
-        # f == f is an intentional NaN check (NaN != NaN)
-        return f if f == f and f not in (float("inf"), float("-inf")) else None  # pylint: disable=comparison-with-itself
+        return f if f == f and f not in (float("inf"), float("-inf")) else None
     except (TypeError, ValueError):
         return None
 
@@ -358,7 +355,7 @@ class MarketThemes:
 
 
 @dataclass
-class ConvictionScore:  # pylint: disable=too-many-instance-attributes
+class ConvictionScore:
     base_scenario: int = 0
     htf_alignment: int = 0
     choch_freshness: int = 0
@@ -462,7 +459,7 @@ class Eliminated(BaseModel):
 # SECTION 6 — CONFIG (immutable, externalizable; Axe 5d)
 # ════════════════════════════════════════════════════════════════════════════
 @dataclass(frozen=True)
-class V9Config:  # pylint: disable=too-many-instance-attributes,invalid-name
+class V9Config:
     MIN_QUALITY: frozenset = frozenset({"A+", "A"})
     MIN_CONSENSUS_PCT: int = 50
     A_PURE_MIN_PCT: int = 85
@@ -589,9 +586,9 @@ class DAGEngine:
     def node_scenario(self, universe: Universe) -> list[Setup]:
         return [self._classify_scenario(a) for a in universe.passed]
 
-    def _classify_scenario(self, asset: CanonicalAsset) -> Setup:  # pylint: disable=too-many-return-statements
+    def _classify_scenario(self, asset: CanonicalAsset) -> Setup:
         mtf = asset.mtf
-        assert mtf is not None  # nosec B101 — type guard, MTF presence verified in node_universe
+        assert mtf is not None
         direction = mtf.direction
         quality = mtf.quality or ""
         pct = mtf.pct
@@ -623,7 +620,7 @@ class DAGEngine:
             return self._build_setup(asset, ScenarioCode.T2_A_AGED)
 
         # T3 B_TRANSITION (zone optional if a fresh aligned CHoCH exists)
-        if (self._aligned_fresh_choch(asset) is not None  # pylint: disable=simplifiable-condition
+        if (self._aligned_fresh_choch(asset) is not None
                 and not self._is_rsi_extreme(asset)
                 and (self._has_near_zone(asset) or True)):
             return self._build_setup(asset, ScenarioCode.T3_B_TRANSITION)
@@ -683,9 +680,9 @@ class DAGEngine:
         return any(z.score >= self.cfg.B_MANUAL_MIN_SCORE for z in asset.zones)
 
     # ── level computation (§8) ──
-    def _build_setup(self, asset: CanonicalAsset, scenario: ScenarioCode) -> Setup:  # pylint: disable=too-many-locals
+    def _build_setup(self, asset: CanonicalAsset, scenario: ScenarioCode) -> Setup:
         mtf = asset.mtf
-        assert mtf is not None  # nosec B101 — type guard, callers pass universe-passed assets
+        assert mtf is not None
         tolerant = (mtf.quality == "A+" and mtf.pct >= self.cfg.A_PURE_MIN_PCT)
         ev = self._get_aligned_choch(asset, tolerant=tolerant)
         atr, atr_src = self._atr_for_signal(asset, ev)
@@ -730,4 +727,756 @@ class DAGEngine:
     def _atr_for_signal(self, asset: CanonicalAsset, ev: Optional[StructureEventView]) -> tuple[float, str]:
         if ev is not None and asset.mtf:
             tf = (ev.timeframe or "").upper()
-            m = {"H1": asset.mtf
+            m = {"H1": asset.mtf.atr_h1, "H4": asset.mtf.atr_h4, "D1": asset.mtf.atr_daily}
+            v = m.get(tf)
+            if v and v > 0:
+                return float(v), f"atr_{tf.lower()}"
+        return (asset.atr_effective or 0.0), (asset.atr_source or "h4")
+
+    def _compute_entry(self, asset, scenario, ev, atr) -> tuple[float, str]:
+        price = asset.current_price or 0.0
+        if ev and ev.candles_elapsed <= 1 and (ev.distance_atr_multiple or 999) <= self.cfg.FRESH_ATR_MAX:
+            return price, "Market"
+        z = asset.nearest_aligned_zone
+        if z and z.distance_pct <= self.cfg.LIMIT_ZONE_MAX_DIST:
+            return z.level, "Limit"
+        if scenario == ScenarioCode.T4_B_MANUAL_ZONE:
+            return price, "Market"
+        if asset.hot_zone_primary:
+            return asset.hot_zone_primary.level, "Limit"
+        return price, "Market"
+
+    def _compute_sl(self, asset, entry, atr, ev) -> tuple[float, float, str]:
+        direction = asset.mtf.direction if asset.mtf else Direction.NEUTRAL
+        bb_regime = ev.bb_regime if ev else "Normal"
+        bb_mult = self.cfg.BB_REGIME_MULT.get(bb_regime, self.cfg.DEFAULT_BB_MULT)
+        if direction is Direction.BULLISH:
+            sl_raw = entry - atr * bb_mult
+        elif direction is Direction.BEARISH:
+            sl_raw = entry + atr * bb_mult
+        else:
+            sl_raw = entry
+        sl = sl_raw
+        detail = f"Raw SL={sl_raw:.5f} ({bb_regime} ×{bb_mult})"
+        z = asset.nearest_aligned_zone
+        if z and z.distance_pct <= self.cfg.LIMIT_ZONE_MAX_DIST:
+            if direction is Direction.BULLISH:
+                sl = min(sl_raw, z.level - 0.3 * atr)
+            elif direction is Direction.BEARISH:
+                sl = max(sl_raw, z.level + 0.3 * atr)
+            detail += f" zone-adj→{sl:.5f}"
+        min_dist = atr * self.cfg.SL_FLOOR_MULT
+        if abs(entry - sl) < min_dist:
+            sl = entry - min_dist if direction is Direction.BULLISH else entry + min_dist
+            detail += f" [floored {self.cfg.SL_FLOOR_MULT}×ATR]"
+        return sl, bb_mult, detail
+
+    def _compute_tp1(self, asset, entry, atr) -> tuple[float, Optional[float], bool]:
+        direction = asset.mtf.direction if asset.mtf else Direction.NEUTRAL
+        opp = self._get_opposite_zone(asset)
+        if opp:
+            return opp.level, (round(abs(opp.level - entry) / atr, 2) if atr > 0 else None), False
+        tp1 = entry + self.cfg.TP1_ATR_MULT * atr if direction is Direction.BULLISH else entry - self.cfg.TP1_ATR_MULT * atr
+        return tp1, self.cfg.TP1_ATR_MULT, True
+
+    def _compute_tp2(self, asset, entry, tp1, atr) -> tuple[Optional[float], Optional[float], bool]:
+        direction = asset.mtf.direction if asset.mtf else Direction.NEUTRAL
+        opp = [z for z in sorted(asset.zones, key=lambda z: z.distance_pct)
+               if self._is_opposite(z, direction)]
+        if len(opp) >= 2:
+            lvl = opp[1].level
+            return lvl, (round(abs(lvl - entry) / atr, 2) if atr > 0 else None), False
+        tp2 = tp1 + self.cfg.TP2_ATR_MULT * atr if direction is Direction.BULLISH else tp1 - self.cfg.TP2_ATR_MULT * atr
+        return tp2, (round(abs(tp2 - entry) / atr, 2) if atr > 0 else None), True
+
+    def _compute_rr(self, entry, sl, tp1, tp2, tp1_syn, tp2_syn) -> tuple[float, str]:
+        risk = abs(entry - sl)
+        if risk <= 0:
+            return 0.0, "Risk=0, invalid"
+        r1 = abs(tp1 - entry)
+        if tp2 is None:
+            rr = r1 / risk
+            detail = f"RR(TP1 only)={rr:.2f}"
+        else:
+            r2 = abs(tp2 - entry)
+            rr = (0.6 * r1 + 0.4 * r2) / risk
+            detail = f"RR=(0.6×{r1:.5f}+0.4×{r2:.5f})/{risk:.5f}={rr:.2f}"
+        flags = []
+        if tp1_syn:
+            flags.append("TP1 synth 2×ATR")
+        if tp2_syn:
+            flags.append("TP2 synth")
+        if flags:
+            detail += " [" + ", ".join(flags) + "]"
+        return round(rr, 2), detail
+
+    def _get_opposite_zone(self, asset) -> Optional[ZoneView]:
+        direction = asset.mtf.direction if asset.mtf else Direction.NEUTRAL
+        zs = [z for z in asset.zones if self._is_opposite(z, direction)]
+        return min(zs, key=lambda z: z.distance_pct) if zs else None
+
+    @staticmethod
+    def _is_opposite(zone: ZoneView, direction: Direction) -> bool:
+        side = (zone.side or "").upper()
+        if direction is Direction.BULLISH:
+            return side in ("SELL", "RESISTANCE", "SUPPLY")
+        if direction is Direction.BEARISH:
+            return side in ("BUY", "SUPPORT", "DEMAND")
+        return False
+
+    def _get_rsi_h4(self, asset) -> Optional[float]:
+        h4 = asset.rsi_by_tf.get("H4")
+        return _safe_float(h4.get("value")) if isinstance(h4, dict) else None
+
+    # ── §4 cal status (Bug #1, both sides — Axe 3a) ──
+    def _compute_cal_status(self, asset: CanonicalAsset) -> tuple[CalStatus, str]:
+        if self._cal is None:
+            return CalStatus.OK, ""
+        sides = {asset.base, (asset.quote or "")}
+        hit_black = sides & self._cal.suspended_ccy
+        if hit_black:
+            names = [f"{e.currency} {e.event_name}" for e in self._cal.blackout if e.currency in hit_black]
+            return CalStatus.BLACKOUT, "; ".join(names[:3])
+        hit_prox = sides & self._cal.proximity_ccy
+        if hit_prox:
+            return CalStatus.PROXIMITY, ", ".join(sorted(hit_prox))
+        hit_watch = sides & self._cal.watch_ccy
+        if hit_watch:
+            return CalStatus.WATCH, ", ".join(sorted(hit_watch))
+        return CalStatus.OK, ""
+
+    def _build_rationale(self, asset, scenario, entry_type, ev) -> str:
+        parts = [f"Scénario {scenario.value}", f"Entry {entry_type}"]
+        if ev:
+            parts.append(f"CHoCH {ev.direction.value} {ev.timeframe} score={ev.confluence_score:.0f} "
+                         f"({ev.candles_elapsed}c, {ev.bb_regime}, {ev.session})")
+        if asset.hot_zone_primary:
+            parts.append("Hot Zone")
+        if self._theme and asset.mtf:
+            tb = self._theme.bonus_for(asset.base, asset.quote, asset.mtf.direction)
+            if tb:
+                parts.append(f"Theme {'+' if tb > 0 else ''}{tb}")
+        return " · ".join(parts)
+
+    # ── §9 conviction (composite, Axe 4) ──
+    def node_conviction(self, setups: list[Setup], assets: dict[str, CanonicalAsset]) -> list[Setup]:
+        for s in setups:
+            asset = assets.get(s.symbol)
+            if asset is None:
+                continue
+            tolerant = (asset.mtf and asset.mtf.quality == "A+" and asset.mtf.pct >= self.cfg.A_PURE_MIN_PCT)
+            ev = self._get_aligned_choch(asset, tolerant=bool(tolerant))
+            score = self._score_conviction(asset, s, ev)
+            s.conviction = score.grade
+            s.conviction_total = score.total
+            s.conviction_breakdown = score.breakdown()
+        return setups
+
+    def _score_conviction(self, asset, setup: Setup, ev) -> ConvictionScore:
+        cs = ConvictionScore()
+        cs.base_scenario = {
+            ScenarioCode.T1_A_PURE: 40, ScenarioCode.T2_A_AGED: 30,
+            ScenarioCode.T3_B_TRANSITION: 20, ScenarioCode.T4_B_MANUAL_ZONE: 20,
+        }.get(setup.scenario, 0)
+        cs.htf_alignment = 20 if setup.htf_aligned else -20
+        if ev:
+            c = ev.candles_elapsed
+            cs.choch_freshness = 15 if c <= 1 else (10 if c <= 2 else 0)
+            cs.choch_score_pts = round((min(ev.confluence_score, 85.0) / 85.0) * 15)
+            cs.bb_regime_pts = {"Squeeze": 10, "Normal": 0, "Expansion": -5}.get(ev.bb_regime, 0)
+            cs.session_pts = _SESSION_PTS.get((ev.session or "").lower(), 0)
+            fv = 0
+            if (ev.force or "").lower() in ("fort", "strong"):
+                fv += 5
+            elif (ev.force or "").lower() in ("faible", "weak"):
+                fv -= 5
+            if (ev.volatility or "").lower() in ("haute", "high"):
+                fv += 2
+            cs.force_vol_pts = fv
+            if asset.mtf:
+                cs.dir_consistency = 0 if _dir_eq(ev.direction, asset.mtf.direction) else -30
+        cs.rsi_quality = _RSI_PTS.get(setup.rsi_h4_status or "", 0)
+        nc = asset.mtf.nc if asset.mtf else 0
+        cs.nc_pts = 5 if nc >= 5 else (2 if nc >= 3 else 0)
+        n_scan = len([k for k, v in (asset.provenance or {}).items() if v])
+        cs.scanner_coverage = 10 if n_scan >= 4 else (5 if n_scan == 3 else -10)
+        cs.cal_risk = _CAL_PTS.get(setup.cal_status.value, 0)
+        if self._theme and asset.mtf:
+            cs.theme_pts = self._theme.bonus_for(asset.base, asset.quote, asset.mtf.direction)
+        return cs
+
+    # ── §11 preflight (BEFORE rank — Bug #6) ──
+    def node_preflight(self, setups: list[Setup]) -> list[Setup]:
+        valid: list[Setup] = []
+        for s in setups:
+            if s.cal_status is CalStatus.BLACKOUT:
+                s.reject_code = "CAL_BLACKOUT"
+                s.reject_detail = s.cal_note
+                continue
+            if not (self.cfg.RR_MIN <= s.rr <= self.cfg.RR_MAX):
+                s.reject_code = "RR_OUT_OF_RANGE"
+                s.reject_detail = f"RR {s.rr} ∉ [{self.cfg.RR_MIN},{self.cfg.RR_MAX}]"
+                continue
+            if s.direction is Direction.BULLISH and s.sl >= s.entry:
+                s.reject_code = "SL_SIGN"
+                s.reject_detail = "SL ≥ entry (bullish)"
+                continue
+            if s.direction is Direction.BEARISH and s.sl <= s.entry:
+                s.reject_code = "SL_SIGN"
+                s.reject_detail = "SL ≤ entry (bearish)"
+                continue
+            valid.append(s)
+        return valid
+
+    # ── §10 rank (after preflight) ──
+    def node_rank(self, setups: list[Setup]) -> list[Setup]:
+        cal_order = {CalStatus.OK: 0, CalStatus.WATCH: 1, CalStatus.PROXIMITY: 2, CalStatus.BLACKOUT: 3}
+
+        def key(s: Setup):
+            return (
+                -self.cfg.CONVICTION_RANK.get(s.conviction.value, 0),
+                -s.conviction_total,
+                cal_order.get(s.cal_status, 9),
+                -s.rr,
+                -(s.choch_score or 0),
+                -s.mtf_pct,
+            )
+
+        setups.sort(key=key)
+        return setups[: self.cfg.MAX_SETUPS]
+
+    # ── portfolio exposure cap (Axe 6d) ──
+    def node_portfolio(self, setups: list[Setup]) -> list[Setup]:
+        net: Counter = Counter()
+        kept: list[Setup] = []
+        for s in sorted(setups, key=lambda x: -self.cfg.CONVICTION_RANK.get(x.conviction.value, 0)):
+            if "/" in s.symbol:
+                b, q = s.symbol.split("/", 1)
+            else:
+                b, q = s.symbol, ""
+            sign = 1 if s.direction is Direction.BULLISH else -1
+            if abs(net[b] + sign) > self.cfg.MAX_EXPOSURE_PER_CCY or \
+               (q and abs(net[q] - sign) > self.cfg.MAX_EXPOSURE_PER_CCY):
+                s.cal_note = (s.cal_note + " [capped: exposition devise]").strip()
+                continue
+            net[b] += sign
+            if q:
+                net[q] -= sign
+            kept.append(s)
+        return kept
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# SECTION 9 — RENDER (filesystem template if present, else inline)
+# ════════════════════════════════════════════════════════════════════════════
+_INLINE_TEMPLATE = """<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>BLUESTAR FX CASCADE – {{date_hdr}}</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600;700&display=swap');
+:root{
+  --royal:#1B45B4;--royal-mid:#2355C3;--royal-light:#E8EEFF;--royal-dim:#6B89D8;
+  --bg:#f5f7fc;--white:#fff;--card:#f0f3fa;--dark:#0d1f4e;--body:#1a1a2e;--sec:#3a4a7a;--muted:#6B89D8;--th:#E8EEFF;
+  --amber:#1B45B4;--amb-bg:#E8EEFF;--amb-bd:#6B89D8;--amb-tx:#0d1f4e;
+  --green:#1a7a4a;--grn-bg:#e8f5ee;--grn-bd:#6EE7B7;--grn-tx:#065F46;
+  --long:#1a7a4a;--lng-bg:#e8f5ee;--lng-bd:#6EE7B7;--lng-tx:#065F46;
+  --yellow:#1B45B4;--yel-bg:#E8EEFF;--yel-bd:#6B89D8;--yel-tx:#0d1f4e;
+  --red:#c0292a;--red-bg:#fdecea;--red-bd:#FCA5A5;--red-tx:#7F1D1D;
+  --short:#c0292a;--sht-bg:#fdecea;--sht-bd:#FCA5A5;--sht-tx:#7F1D1D;
+  --blue:#2355C3;--blu-bg:#E8EEFF;--blu-bd:#6B89D8;--purple:#1B45B4;
+  --orange:#2355C3;--org-bg:#E8EEFF;--org-bd:#6B89D8;
+  --border:#dde3f5;--border2:#bbc6e8;--r:5px;--rl:7px;--gap:12px;
+  --sans:'IBM Plex Sans',system-ui,sans-serif;--mono:'IBM Plex Mono','SF Mono','Courier New',monospace
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:var(--bg);color:var(--body);font-family:var(--sans);font-size:12px;line-height:1.45;-webkit-font-smoothing:antialiased}
+#page{max-width:1180px;margin:0 auto;background:var(--bg)}
+.wrap{padding:14px 20px}
+.section{background:var(--white);border:1px solid var(--border);border-radius:var(--rl);margin-bottom:var(--gap);overflow:hidden;box-shadow:0 1px 3px rgba(13,31,78,.03)}
+.sec-hdr{display:flex;align-items:center;gap:10px;padding:9px 16px;border-bottom:1px solid var(--border);background:var(--white)}
+.sec-num{width:22px;height:22px;border-radius:50%;background:var(--royal);color:#fff;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-family:var(--mono)}
+.sec-ttl{font-size:12px;font-weight:700;color:var(--dark);text-transform:uppercase;letter-spacing:.5px;font-family:var(--mono)}
+.sec-sub{margin-left:auto;font-size:9.5px;color:var(--muted);font-style:italic}
+.sec-body{padding:12px 16px}
+.setup{border:1px solid var(--border);border-radius:var(--rl);overflow:hidden;margin-bottom:11px;box-shadow:0 1px 2px rgba(13,31,78,.03)}
+.setup:last-child{margin-bottom:0}
+.setup.aaa{border-left:3px solid var(--royal)}.setup.aa{border-left:3px solid var(--royal-mid)}.setup.a{border-left:3px solid var(--green)}.setup.bbb{border-left:3px solid var(--muted)}
+.setup-hdr{display:flex;align-items:center;gap:10px;padding:9px 16px;border-bottom:1px solid var(--border);flex-wrap:wrap}
+.setup-hdr.long{background:var(--grn-bg)}.setup-hdr.short{background:var(--sht-bg)}
+.pair{font-size:16px;font-weight:700;font-family:var(--mono);color:var(--dark)}
+.dir{display:inline-flex;align-items:center;gap:4px;padding:2px 9px;border-radius:4px;font-size:10.5px;font-weight:700;font-family:var(--mono)}
+.dir.long{background:var(--grn-bg);border:1px solid var(--grn-bd);color:var(--grn-tx)}
+.dir.short{background:var(--sht-bg);border:1px solid var(--sht-bd);color:var(--sht-tx)}
+.conv{display:inline-flex;padding:2px 9px;border-radius:4px;font-size:10.5px;font-weight:700;font-family:var(--mono)}
+.conv.aaa{background:var(--royal-light);border:1px solid var(--royal-dim);color:var(--royal)}
+.conv.aa{background:var(--royal-light);border:1px solid var(--royal-dim);color:var(--royal-mid)}
+.conv.a{background:var(--grn-bg);border:1px solid var(--grn-bd);color:var(--green)}
+.conv.bbb{background:var(--card);border:1px solid var(--border2);color:var(--sec)}
+.scen-lbl{margin-left:auto;font-size:9.5px;color:var(--muted);font-family:var(--mono)}
+.setup-body{padding:12px 16px;background:var(--white)}
+.badge,.bdg{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:4px;font-size:9px;font-weight:700;border:1px solid transparent;font-family:var(--mono)}
+.badge-red{background:var(--red-bg);border-color:var(--red-bd);color:var(--red-tx)}
+.badge-green{background:var(--grn-bg);border-color:var(--grn-bd);color:var(--grn-tx)}
+.badge-blue,.badge-yellow{background:var(--royal-light);border-color:var(--royal-dim);color:var(--royal)}
+.bdg-sys{background:var(--royal-light);border-color:var(--royal-dim);color:var(--royal)}
+.metrics-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:5px;margin-bottom:11px;padding:9px;background:var(--card);border:1px solid var(--border);border-radius:var(--r)}
+.metric{text-align:center;padding:3px 0}
+.metric-lbl{font-size:8px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;font-family:var(--mono);margin-bottom:2px}
+.metric-val{font-size:12px;font-weight:700;font-family:var(--mono)}
+.metric-val.ok{color:var(--green)}.metric-val.warn{color:var(--royal)}.metric-val.danger{color:var(--red)}
+.px-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:7px;margin-bottom:11px}
+.px-card{background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:8px 10px;text-align:center}
+.px-card.entry{border-top:2px solid var(--royal)}.px-card.sl{border-top:2px solid var(--red)}.px-card.tp1{border-top:2px solid var(--green)}.px-card.tp2{border-top:2px solid var(--royal-mid)}.px-card.rr{border-top:2px solid var(--royal-dim)}
+.px-lbl{font-size:7.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;font-weight:600;margin-bottom:3px;font-family:var(--mono)}
+.px-val{font-size:14px;font-weight:700;font-family:var(--mono)}
+.px-sub{font-size:8.5px;color:var(--muted);margin-top:2px}
+.rationale{background:var(--royal-light);border-left:3px solid var(--royal);padding:9px 12px;font-size:11px;color:var(--dark);margin-bottom:10px;line-height:1.55;border-radius:var(--r)}
+.rationale strong{display:block;font-size:8.5px;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;color:var(--royal);font-family:var(--mono)}
+.cal-row{display:flex;align-items:center;gap:8px;font-size:10.5px;color:var(--sec);margin-bottom:10px}
+.cal-ok,.cal-prox,.cal-sus,.cal-watch{padding:2px 8px;border-radius:4px;font-size:9.5px;font-weight:700;font-family:var(--mono)}
+.cal-ok{background:var(--grn-bg);border:1px solid var(--grn-bd);color:var(--grn-tx)}
+.cal-watch{background:var(--royal-light);border:1px solid var(--royal-dim);color:var(--royal-mid)}
+.cal-prox{background:var(--royal-light);border:1px solid var(--royal-dim);color:var(--royal-mid)}
+.cal-sus{background:var(--red-bg);border:1px solid var(--red-bd);color:var(--red-tx)}
+.brief{background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:10px 14px;margin-bottom:9px}
+.brief:last-child{margin-bottom:0}
+.brief-hdr{display:flex;align-items:center;gap:8px;margin-bottom:7px}
+.brief-grid{display:grid;grid-template-columns:130px 1fr;gap:3px 12px;font-size:11px}
+.brief-lbl{font-weight:700;color:var(--muted);font-size:8.5px;text-transform:uppercase;letter-spacing:.5px;padding-top:2px;font-family:var(--mono)}
+.sub-lbl{font-size:8.5px;font-weight:700;color:var(--royal);text-transform:uppercase;letter-spacing:1px;margin:11px 0 7px;font-family:var(--mono)}
+.sub-lbl:first-child{margin-top:0}
+.elim{background:var(--card);border:1px solid var(--border);border-left:3px solid var(--border2);border-radius:var(--r);padding:8px 12px;margin-bottom:6px;display:flex;align-items:flex-start;gap:10px}
+.elim.sus{border-left-color:var(--red);background:var(--red-bg)}.elim.corr{border-left-color:var(--royal)}.elim.tent{border-left-color:var(--royal-mid);background:var(--royal-light)}
+.elim-pair{font-size:12px;font-weight:700;font-family:var(--mono);color:var(--sec);min-width:84px;flex-shrink:0}
+.elim-txt{font-size:10px;color:var(--muted)}
+hr.div{border:none;border-top:1px solid var(--border);margin:9px 0}
+table{width:100%;border-collapse:collapse;font-size:11px}
+thead tr{background:var(--royal)!important}
+thead th{padding:7px 10px;text-align:left;font-size:8.5px;font-weight:700;color:#fff;letter-spacing:.8px;text-transform:uppercase;white-space:nowrap;font-family:var(--mono)}
+tbody tr{border-bottom:1px solid var(--border)}
+tbody tr:nth-child(even){background:var(--card)}
+tbody td{padding:5px 10px;vertical-align:middle}
+.no-setup{background:var(--card);border:2px dashed var(--border2);border-radius:var(--rl);padding:36px 20px;text-align:center}
+.no-setup-icon{font-size:32px;margin-bottom:10px}.no-setup-title{font-size:15px;font-weight:700;color:var(--dark);margin-bottom:6px}.no-setup-sub{font-size:11px;color:var(--muted);font-family:var(--mono)}
+.reject-code{font-family:var(--mono);font-size:9.5px;font-weight:700;color:var(--red)}
+.audit-block{background:#0d1f4e;color:#E8EEFF;border-radius:var(--r);padding:9px 12px;margin-top:10px;font-family:var(--mono);font-size:9px;line-height:1.55;word-break:break-word}
+.audit-block strong{color:#6EE7B7;font-size:8.5px;text-transform:uppercase;letter-spacing:1px;display:block;margin-bottom:4px}
+.footer{text-align:center;font-family:var(--mono);font-size:7.5px;color:var(--muted);border-top:1px solid var(--border);padding:9px 20px;margin-top:4px;letter-spacing:1.2px}
+.page-header{
+  background:linear-gradient(135deg,#F8FAFF 0%,#F0F4FE 100%);
+  border:1px solid var(--border);border-radius:var(--rl) var(--rl) 0 0;
+  display:flex;align-items:center;justify-content:space-between;
+  padding:13px 24px;margin-bottom:0;
+  box-shadow:0 1px 4px rgba(13,31,78,.04),inset 0 1px 0 rgba(255,255,255,.8);
+  position:relative;
+}
+.page-header::after{content:'';position:absolute;bottom:0;left:24px;right:24px;height:2px;background:linear-gradient(90deg,var(--royal),var(--royal-dim),transparent);border-radius:2px}
+.header-left{display:flex;align-items:center;gap:14px}
+.logo-marker{width:34px;height:34px;display:flex;align-items:center;justify-content:center;flex-shrink:0;background:var(--white);border:1px solid var(--border);border-radius:var(--r)}
+.sys-label{font-size:8.5px;letter-spacing:.3em;color:var(--royal-dim);font-family:var(--mono);font-weight:600;text-transform:uppercase}
+.sys-name{font-size:21px;font-weight:700;color:var(--dark);letter-spacing:-.02em;line-height:1.1;font-family:var(--mono)}
+.sys-desc{font-size:8.5px;color:var(--muted);font-family:var(--mono);margin-top:2px;letter-spacing:.02em}
+.header-right{text-align:right;border-left:1px solid var(--border2);padding-left:18px}
+.briefing-label{font-size:10.5px;color:var(--royal);font-family:var(--mono);letter-spacing:.08em;font-weight:600;text-transform:uppercase}
+.briefing-sub{font-size:8.5px;color:var(--sec);font-family:var(--mono);margin-top:4px;letter-spacing:.02em}
+.page-subbar{background:rgba(27,69,180,.04);border-left:1px solid var(--border);border-right:1px solid var(--border);border-bottom:1px solid var(--border);padding:7px 24px;display:flex;align-items:center;gap:22px;flex-wrap:wrap;font-size:9.5px;font-family:var(--mono);color:var(--sec)}
+.confidential{margin-left:auto;color:var(--royal);font-weight:600;background:rgba(27,69,180,.08);padding:2px 10px;border-radius:20px;font-size:8.5px}
+@media print{
+  @page{margin:8mm 7mm;size:A4 portrait}
+  *{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}
+  html,body{background:#fff!important;font-size:9.5px!important;line-height:1.4!important}
+  #page{max-width:none!important;width:100%!important}
+  .wrap{padding:6px 8px!important;border-left:1px solid var(--border);border-right:1px solid var(--border);border-bottom:1px solid var(--border)}
+  .page-header{background:#F8FAFF!important;border:1px solid var(--border)!important;padding:9px 16px!important}
+  .sys-name{font-size:17px!important}
+  .logo-marker{width:28px!important;height:28px!important}
+  .page-subbar{background:#f5f7fc!important;padding:5px 16px!important;gap:14px!important;font-size:8px!important}
+  thead tr{background:var(--royal)!important}
+  table{page-break-inside:auto;width:100%!important;font-size:8.5px!important}
+  thead th{padding:4px 7px!important;font-size:7px!important}
+  tbody td{padding:3px 7px!important}
+  tr{page-break-inside:avoid}
+  thead{display:table-header-group}
+  .section{margin-bottom:7px!important;break-inside:avoid!important;page-break-inside:avoid!important;box-shadow:none!important}
+  .sec-hdr{padding:6px 12px!important}
+  .sec-body{padding:8px 12px!important}
+  .setup{break-inside:avoid!important;page-break-inside:avoid!important;margin-bottom:7px!important;box-shadow:none!important}
+  .setup-body{break-inside:avoid!important;page-break-inside:avoid!important}
+  .elim,.brief,.audit-block,.rationale,.metrics-grid,.px-grid,.cal-row{break-inside:avoid!important;page-break-inside:avoid!important}
+  .metrics-grid{gap:3px!important;padding:6px!important;margin-bottom:8px!important}
+  .px-grid{gap:5px!important;margin-bottom:8px!important}
+  .px-card{padding:6px 7px!important}
+  .px-val{font-size:12px!important}
+  .metric-val{font-size:10.5px!important}
+  .pair{font-size:14px!important}
+  .rationale{padding:7px 10px!important;font-size:9.5px!important;margin-bottom:8px!important}
+  .setup-hdr{padding:7px 12px!important}
+  .setup-body{padding:9px 12px!important}
+  .audit-block{padding:7px 10px!important;font-size:8px!important;margin-top:8px!important}
+  .brief-grid{font-size:9.5px!important}
+  #page{background:#fff}
+  .footer{border-top:1px solid var(--border);padding:5px 10px!important;break-inside:avoid;font-size:6.5px!important}
+  #pdf-fab{display:none!important}
+}
+#pdf-fab{position:fixed;bottom:28px;right:28px;z-index:9999;display:flex;flex-direction:column;align-items:flex-end;gap:8px}
+#pdf-fab button{background:#1B45B4;color:#fff;border:none;padding:11px 20px;border-radius:8px;font-family:'IBM Plex Mono','Courier New',monospace;font-size:12px;font-weight:700;cursor:pointer;letter-spacing:.06em;box-shadow:0 4px 16px rgba(27,69,180,.45);display:flex;align-items:center;gap:8px;transition:background .15s}
+#pdf-fab button:hover{background:#2355C3}
+#pdf-fab small{font-size:9px;color:rgba(255,255,255,.7);font-family:monospace;text-align:right}
+</style>
+</head>
+<body>
+
+<div id="pdf-fab">
+  <button onclick="window.print()">&#128229; Télécharger PDF</button>
+  <small>Chrome → Enregistrer en PDF<br>Activer "Graphiques d'arrière-plan"</small>
+</div>
+
+<div id="page">
+<div class="page-header">
+  <div class="header-left">
+    <div class="logo-marker">
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M12 17.27L18.18 21L16.54 13.97L22 9.24L14.81 8.63L12 2L9.19 8.63L2 9.24L7.46 13.97L5.82 21L12 17.27Z" fill="#1B45B4"/>
+      </svg>
+    </div>
+    <div>
+      <div class="sys-label">BLUESTAR SYSTEM</div>
+      <div class="sys-name">BLUESTAR</div>
+      <div class="sys-desc">FX INSTITUTIONAL DESK · v9.1 DETERMINISTIC</div>
+    </div>
+  </div>
+  <div class="header-right">
+    <div class="briefing-label">FX CASCADE · TRADER</div>
+    <div class="briefing-sub">{{date_hdr}}</div>
+  </div>
+</div>
+<div class="page-subbar">
+  <span>{{date_hdr}}</span>
+  <span>GMT+1</span>
+  <span style="background:rgba(27,69,180,.12);color:var(--royal);padding:2px 10px;border-radius:20px;font-weight:700;border:1px solid var(--royal-dim)">{{n_setups}} setup(s)</span>
+  <span>Universe <strong>{{n_passed}}/{{n_total}}</strong></span>
+  <span>Event Risk : <strong style="color:{% if event_risk == 'High' %}var(--red){% elif event_risk == 'Medium' %}#EA580C{% else %}var(--green){% endif %}">{{event_risk}}</strong></span>
+  {% if themes %}<span>Thèmes : {{themes}}</span>{% endif %}
+  <span class="confidential">CONFIDENTIEL</span>
+</div>
+
+<div class="wrap">
+
+<!-- ═══ SECTION 1 — SETUPS VALIDES ═══ -->
+<div class="section">
+  <div class="sec-hdr"><div class="sec-num">1</div><div class="sec-ttl">Setups Valides</div><div class="sec-sub">{{n_setups}} setup(s) validé(s) · Universe {{n_passed}}/{{n_total}}</div></div>
+  <div class="sec-body">
+  {% if setups %}
+  {% for s in setups %}
+  {% set dc = 'long' if s.direction.value == 'Bullish' else 'short' %}
+  {% set arrow = '▲' if s.direction.value == 'Bullish' else '▼' %}
+  {% set dist_cls = 'ok' if (s.distance_atr or 0) <= 0.3 else ('warn' if (s.distance_atr or 0) <= 1.0 else 'danger') %}
+  {% set rsi_cls = 'ok' if s.rsi_h4_status == 'favorable' else ('danger' if 'extreme' in (s.rsi_h4_status or '') else 'warn') %}
+  {% set age_cls = 'ok' if s.age_d1 <= 15 else ('warn' if s.age_d1 <= 30 else 'danger') %}
+  {% set mtf_cls = 'ok' if s.mtf_pct >= 85 else ('warn' if s.mtf_pct >= 60 else 'danger') %}
+  <div class="setup {{s.conviction.value|lower}}">
+    <div class="setup-hdr {{dc}}">
+      <span class="pair">{{s.symbol}}</span>
+      <span class="dir {{dc}}">{{arrow}} {{s.direction.value}}</span>
+      <span class="conv {{s.conviction.value|lower}}">{{s.conviction.value}} ({{s.conviction_total}})</span>
+      <span class="scen-lbl">{{s.scenario.value}}{% if s.cal_status.value != 'OK' %} · {{s.cal_status.value}}{% endif %}</span>
+    </div>
+    <div class="setup-body">
+      <div class="metrics-grid">
+        <div class="metric"><div class="metric-lbl">Distance ATR</div><div class="metric-val {{dist_cls}}">{{s.distance_atr|round(2)}}×</div></div>
+        <div class="metric"><div class="metric-lbl">Score CHoCH</div><div class="metric-val {% if (s.choch_score or 0) >= 70 %}ok{% elif (s.choch_score or 0) >= 50 %}warn{% else %}danger{% endif %}">{{s.choch_score or '—'}}</div></div>
+        <div class="metric"><div class="metric-lbl">Quality GPS</div><div class="metric-val {% if s.gps_quality in ['A+','A'] %}ok{% else %}warn{% endif %}">{{s.gps_quality or '—'}}</div></div>
+        <div class="metric"><div class="metric-lbl">MTF %</div><div class="metric-val {{mtf_cls}}">{{s.mtf_pct}}%</div></div>
+        <div class="metric"><div class="metric-lbl">RSI H4</div><div class="metric-val {{rsi_cls}}">{{s.rsi_h4|round(1) if s.rsi_h4 else '—'}}</div></div>
+        <div class="metric"><div class="metric-lbl">Age trend</div><div class="metric-val {{age_cls}}">{{s.age_d1}}j</div></div>
+      </div>
+      <div class="px-grid">
+        <div class="px-card entry"><div class="px-lbl">Entry</div><div class="px-val" style="color:var(--royal)">{{s.entry}}</div><div class="px-sub">{{s.entry_type}}</div></div>
+        <div class="px-card sl"><div class="px-lbl">Stop Loss</div><div class="px-val" style="color:var(--red)">{{s.sl}}</div><div class="px-sub">{{s.sl_atr_multiple|round(1)}}×ATR</div></div>
+        <div class="px-card tp1"><div class="px-lbl">TP1 (60%)</div><div class="px-val" style="color:var(--green)">{{s.tp1}}</div><div class="px-sub">{% if s.tp1_atr_multiple %}{{s.tp1_atr_multiple}}×ATR{% else %}synth{% endif %}</div></div>
+        <div class="px-card tp2"><div class="px-lbl">TP2 (40%)</div><div class="px-val" style="color:var(--blue)">{{s.tp2 if s.tp2 else '—'}}</div><div class="px-sub">{% if s.tp2_atr_multiple %}{{s.tp2_atr_multiple}}×ATR{% else %}synth{% endif %}</div></div>
+        <div class="px-card rr"><div class="px-lbl">R : R</div><div class="px-val" style="color:var(--purple)">{{s.rr|round(2)}}</div><div class="px-sub">pondéré 60/40</div></div>
+      </div>
+      <div class="rationale"><strong>Rationale</strong>{{s.rationale}}{% if s.cal_note %} · <em>{{s.cal_note}}</em>{% endif %}</div>
+      <div class="cal-row">
+        <span class="cal-{{s.cal_status.value|lower}}">{{s.cal_status.value}}</span>
+        {% if s.cal_note %}<span>{{s.cal_note}}</span>{% endif %}
+      </div>
+      <div class="audit-block"><strong>Audit Trail</strong>{{s.sl_detail}}<br>{{s.rr_detail}}<br>{{s.conviction_breakdown}}<br>ATR={{s.atr_source}} · scenario={{s.scenario.value}} · htf={{s.htf_aligned}}</div>
+    </div>
+  </div>
+  {% endfor %}
+  {% else %}
+  <div class="no-setup">
+    <div class="no-setup-icon">∅</div>
+    <div class="no-setup-title">Aucun setup conforme aujourd'hui</div>
+    <div class="no-setup-sub">Event Risk : {{event_risk}} · Universe {{n_passed}}/{{n_total}}</div>
+  </div>
+  {% endif %}
+  </div>
+</div>
+
+<!-- ═══ SECTION 2 — BRIEF TRADER ═══ -->
+{% if setups %}
+<div class="section">
+  <div class="sec-hdr"><div class="sec-num">2</div><div class="sec-ttl">Brief Trader</div><div class="sec-sub">Fiche opérationnelle par setup</div></div>
+  <div class="sec-body">
+  {% for s in setups %}
+  {% set dc = 'long' if s.direction.value == 'Bullish' else 'short' %}
+  {% set arrow = '▲' if s.direction.value == 'Bullish' else '▼' %}
+  <div class="brief">
+    <div class="brief-hdr">
+      <span class="dir {{dc}}" style="font-size:10.5px;padding:2px 8px">{{arrow}} {{s.direction.value}}</span>
+      <span style="font-weight:700;font-family:var(--mono)">{{s.symbol}}</span>
+      <span class="conv {{s.conviction.value|lower}}" style="font-size:9.5px">{{s.conviction.value}}</span>
+    </div>
+    <div class="brief-grid">
+      <span class="brief-lbl">Scénario</span><span>{{s.scenario.value}}</span>
+      <span class="brief-lbl">Entry</span><span style="font-family:var(--mono);font-weight:700;color:var(--royal)">{{s.entry}}</span>
+      <span class="brief-lbl">Stop Loss</span><span style="font-family:var(--mono);font-weight:700;color:var(--red)">{{s.sl}} &nbsp;<span style="font-size:9.5px;color:var(--muted)">({{s.sl_atr_multiple|round(1)}}×ATR)</span></span>
+      <span class="brief-lbl">TP1 / TP2</span><span style="font-family:var(--mono);font-weight:700;color:var(--green)">{{s.tp1}} {% if s.tp2 %}/ <span style="color:var(--blue)">{{s.tp2}}</span>{% endif %}</span>
+      <span class="brief-lbl">R : R</span><span style="font-family:var(--mono);font-weight:700;color:var(--purple)">{{s.rr|round(2)}} <span style="font-size:9.5px;color:var(--muted)">(pondéré 60/40)</span></span>
+      <span class="brief-lbl">Calendrier</span><span><span class="cal-{{s.cal_status.value|lower}}">{{s.cal_status.value}}</span>{% if s.cal_note %} — {{s.cal_note}}{% endif %}</span>
+      <span class="brief-lbl">RSI H4</span><span>{{s.rsi_h4|round(1) if s.rsi_h4 else '—'}} <span style="font-size:9.5px;color:var(--muted)">({{s.rsi_h4_status or '—'}})</span></span>
+      <span class="brief-lbl">Age trend</span><span>{{s.age_d1}}j</span>
+      <span class="brief-lbl">HTF aligné</span><span>{{s.htf_aligned}}</span>
+      <span class="brief-lbl">SL formule</span><span style="font-size:10px;color:var(--sec)">{{s.sl_detail}}</span>
+      <span class="brief-lbl">RR formule</span><span style="font-size:10px;color:var(--sec)">{{s.rr_detail}}</span>
+    </div>
+  </div>
+  {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+<!-- ═══ SECTION 3 — ÉLIMINÉS & SURVEILLANCE ═══ -->
+<div class="section">
+  <div class="sec-hdr"><div class="sec-num">{% if setups %}3{% else %}2{% endif %}</div><div class="sec-ttl">Éliminés &amp; Surveillance</div><div class="sec-sub">{{elimines|length}} actif(s) filtré(s)</div></div>
+  <div class="sec-body">
+  {% set suspendus = elimines | selectattr('reject_code', 'equalto', 'CAL_BLACKOUT') | list %}
+  {% set correls = elimines | selectattr('reject_code', 'equalto', 'CORRELATED_OUT') | list %}
+  {% set rejets = elimines | rejectattr('reject_code', 'equalto', 'CAL_BLACKOUT') | rejectattr('reject_code', 'equalto', 'CORRELATED_OUT') | list %}
+
+  {% if suspendus %}
+  <div class="sub-lbl">SUSPENDUS — Calendrier ({{suspendus|length}})</div>
+  {% for e in suspendus %}
+  <div class="elim sus">
+    <span class="elim-pair">{{e.symbol}}</span>
+    <div>
+      <span class="cal-sus" style="display:inline-flex;margin-bottom:4px">BLACKOUT</span>
+      <div class="elim-txt">{{e.reject_detail}} · RSI H4 : {{e.rsi_h4|round(2) if e.rsi_h4 else '—'}} · Age : {{e.age_d1}}j</div>
+    </div>
+  </div>
+  {% endfor %}
+  <hr class="div">
+  {% endif %}
+
+  {% if correls %}
+  <div class="sub-lbl">SURVEILLANCE — Corrélation ({{correls|length}})</div>
+  {% for e in correls %}
+  <div class="elim corr">
+    <span class="elim-pair">{{e.symbol}}</span>
+    <div class="elim-txt">{{e.reject_detail}}</div>
+  </div>
+  {% endfor %}
+  <hr class="div">
+  {% endif %}
+
+  {% if rejets %}
+  <div class="sub-lbl">REJETS — Scénario / Filtre / Preflight ({{rejets|length}})</div>
+  <table>
+    <thead><tr><th>Paire</th><th>Dir.</th><th>Code rejet</th><th>Détail</th><th>RSI H4</th><th>Age</th><th>Cal.</th></tr></thead>
+    <tbody>
+    {% for e in rejets %}
+    {% set dc = 'long' if e.direction.value == 'Bullish' else 'short' %}
+    <tr>
+      <td style="font-family:var(--mono);font-weight:700">{{e.symbol}}</td>
+      <td><span class="dir {{dc}}" style="font-size:9.5px;padding:1px 6px">{{e.direction.value}}</span></td>
+      <td class="reject-code">{{e.reject_code}}</td>
+      <td style="font-size:10px">{{e.reject_detail}}</td>
+      <td style="font-family:var(--mono);font-size:10px">{{e.rsi_h4|round(2) if e.rsi_h4 else '—'}}</td>
+      <td style="font-family:var(--mono);font-size:10px">{{e.age_d1}}j</td>
+      <td><span class="cal-{{e.cal_status.value|lower}}" style="font-size:9.5px;padding:1px 6px">{{e.cal_status.value}}</span></td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+
+  {% if not elimines %}
+  <div style="padding:14px;color:var(--muted);font-style:italic;font-size:11px">Aucun actif éliminé ce cycle.</div>
+  {% endif %}
+  </div>
+</div>
+
+</div><!-- .wrap -->
+<div class="footer">CONFIDENTIEL · BLUESTAR SYSTEM v9.1 DETERMINISTIC · {{date_hdr}} · MAX {{max_setups}} SETUPS · RR ∈ [{{rr_min}}, {{rr_max}}]</div>
+</div><!-- #page -->
+</body></html>"""
+
+
+def _get_template() -> jinja2.Template:
+    tdir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "templates")
+    tfile = os.path.join(tdir, "scaffold.html.j2")
+    if os.path.isfile(tfile):
+        env = jinja2.Environment(loader=jinja2.FileSystemLoader(tdir),
+                                 autoescape=jinja2.select_autoescape(["html", "j2"]))
+        return env.get_template("scaffold.html.j2")
+    return jinja2.Environment(autoescape=jinja2.select_autoescape(["html"])).from_string(_INLINE_TEMPLATE)
+
+
+def render_scaffold(setups: list[Setup], elimines: list[Eliminated], meta: MergeMeta,
+                    clock: Clock, calendar: Optional[CalendarSets], themes: Optional[MarketThemes],
+                    n_passed: int, cfg: V9Config = CONFIG) -> str:
+    risk = "Low"
+    if calendar:
+        if calendar.blackout:
+            risk = "High"
+        elif calendar.proximity:
+            risk = "Medium"
+    theme_str = ", ".join(f"{k} {v}" for k, v in (themes.strong.items() if themes else []))
+    return _get_template().render(
+        date_hdr=clock.date_hdr,
+        n_setups=len(setups),
+        n_passed=n_passed,
+        n_total=meta.assets_count or (n_passed + len(elimines)),
+        event_risk=risk, themes=theme_str,
+        setups=setups, elimines=elimines,
+        max_setups=cfg.MAX_SETUPS, rr_min=cfg.RR_MIN, rr_max=cfg.RR_MAX,
+    )
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# SECTION 10 — INGESTION (autonomous JSON parsing)
+# ════════════════════════════════════════════════════════════════════════════
+def load_merged(merged_path: str) -> tuple[MergeMeta, dict[str, CanonicalAsset]]:
+    with open(merged_path, encoding="utf-8") as f:
+        raw = json.load(f)
+    meta = MergeMeta.model_validate(raw.get("meta", {}))
+    assets: dict[str, CanonicalAsset] = {}
+    for sym, a in (raw.get("assets") or {}).items():
+        try:
+            assets[sym] = CanonicalAsset.model_validate(a)
+        except Exception as exc:  # never blocking — skip malformed asset
+            logger.warning("asset %s skipped: %s", sym, exc)
+    return meta, assets
+
+
+def load_calendar(calendar_json_path: Optional[str]) -> CalendarData:
+    if not calendar_json_path:
+        return CalendarData()
+    with open(calendar_json_path, encoding="utf-8") as f:
+        raw = f.read()
+    data = CalendarData.model_validate_json(raw)
+    data.raw_html_hash = hashlib.sha256(raw.encode("utf-8")).hexdigest()
+    return data
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# SECTION 11 — ORCHESTRATION (Bug #2 fully implemented)
+# ════════════════════════════════════════════════════════════════════════════
+def run_pipeline(
+    merged_path: str,
+    calendar_path: Optional[str] = None,
+    calendar_json_path: Optional[str] = None,
+    output_path: Optional[str] = None,
+    config: V9Config = CONFIG,
+) -> str:
+    # Phase 1 — ingestion
+    meta, assets = load_merged(merged_path)
+
+    # Phase 2 — calendar
+    if calendar_path and not calendar_json_path:
+        raise NotImplementedError(
+            "HTML calendar parsing is delegated to an LLM upstream; pass --calendar-json.")
+    calendar_data = load_calendar(calendar_json_path)
+
+    # Phase 3 — DAG
+    dag = DAGEngine(config)
+    clock = dag.node_clock(meta)
+    calendar_sets = dag.node_cal_parse(calendar_data, clock)
+    dag._theme = detect_currency_themes(assets)
+
+    universe = dag.node_universe(assets, calendar_sets)
+    setups_all = dag.node_scenario(universe)
+
+    playable = [s for s in setups_all if s.reject_code is None]
+    eliminated = _collect_eliminated(universe, setups_all)
+
+    playable = dag.node_conviction(playable, assets)
+    playable = dag.node_preflight(playable)        # preflight BEFORE rank
+    # capture preflight rejects into eliminated
+    eliminated.extend(_eliminated_from_setups([s for s in playable if s.reject_code]))
+    playable = [s for s in playable if s.reject_code is None]
+    playable = dag.node_rank(playable)
+    playable = dag.node_portfolio(playable)
+
+    # Phase 4 — render
+    html = render_scaffold(playable, eliminated, meta, clock, calendar_sets,
+                           dag._theme, n_passed=len(universe.passed), cfg=config)
+    if output_path:
+        with open(output_path, "w", encoding="utf-8") as f:
+            f.write(html)
+    return html
+
+
+def _collect_eliminated(universe: Universe, setups_all: list[Setup]) -> list[Eliminated]:
+    out: list[Eliminated] = []
+    for asset, code, detail in universe.rejected:
+        m = asset.mtf
+        h4 = asset.rsi_by_tf.get("H4") if asset.rsi_by_tf else None
+        out.append(Eliminated(
+            symbol=asset.symbol,
+            direction=(m.direction if m else Direction.NEUTRAL),
+            reject_code=code.value, reject_detail=detail,
+            rsi_h4=(_safe_float(h4.get("value")) if isinstance(h4, dict) else None),
+            age_d1=(m.age_d1 if m else 0),
+        ))
+    out.extend(_eliminated_from_setups([s for s in setups_all if s.reject_code is not None]))
+    return out
+
+
+def _eliminated_from_setups(setups: list[Setup]) -> list[Eliminated]:
+    return [Eliminated(
+        symbol=s.symbol, direction=s.direction, scenario=s.scenario.value,
+        reject_code=s.reject_code or "UNKNOWN", reject_detail=s.reject_detail or "",
+        rsi_h4=s.rsi_h4, age_d1=s.age_d1, cal_status=s.cal_status, rr=s.rr,
+    ) for s in setups]
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# SECTION 12 — CLI
+# ════════════════════════════════════════════════════════════════════════════
+def main() -> None:
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+    p = argparse.ArgumentParser(description="BLUESTAR ENGINE v9.1")
+    p.add_argument("--merged", required=True, help="Path to merged_pipeline_*.json")
+    p.add_argument("--calendar", help="Path to Forex Factory HTML (requires upstream LLM parse)")
+    p.add_argument("--calendar-json", help="Path to pre-parsed calendar.json")
+    p.add_argument("--config", help="Optional JSON config overrides")
+    p.add_argument("--output", "-o", help="Output HTML path")
+    args = p.parse_args()
+
+    cfg = CONFIG
+    if args.config:
+        with open(args.config, encoding="utf-8") as f:
+            cfg = V9Config.from_dict(json.load(f))
+
+    html = run_pipeline(
+        merged_path=args.merged,
+        calendar_path=args.calendar,
+        calendar_json_path=args.calendar_json,
+        output_path=args.output,
+        config=cfg,
+    )
+    logger.info("Report generated: %d bytes%s", len(html),
+                f" → {args.output}" if args.output else "")
+    if not args.output:
+        print(html)
+
+
+if __name__ == "__main__":
+    main()
