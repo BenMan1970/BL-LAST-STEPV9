@@ -1,19 +1,35 @@
 """
 BLUESTAR ENGINE v9.1 — Streamlit Interface
-Dépose ce fichier à la racine du repo, au même niveau que ENGINE_V9.py
+Dépose ce fichier à la racine du repo, au même niveau que ENGINE.V9.py
 """
-import json
+import importlib.util
+import sys
 import tempfile
 import os
+from pathlib import Path
 
 import streamlit as st
 
-# ── Import du moteur ──────────────────────────────────────────────────────
-try:
-    from ENGINE_V9 import run_pipeline
-except ImportError as e:
-    st.error(f"Impossible d'importer ENGINE_V9 : {e}")
+# ── Import du moteur (filename ENGINE.V9.py contient un point — import classique impossible) ──
+def _load_engine():
+    here = Path(__file__).parent
+    candidates = ["ENGINE.V9.py", "ENGINE_V9.py", "bluestar_engine_v9.py"]
+    for name in candidates:
+        path = here / name
+        if path.exists():
+            spec = importlib.util.spec_from_file_location("bluestar_engine", path)
+            mod = importlib.util.module_from_spec(spec)
+            sys.modules["bluestar_engine"] = mod
+            spec.loader.exec_module(mod)
+            return mod
+    return None
+
+_engine = _load_engine()
+if _engine is None:
+    st.error("Moteur introuvable. Vérifie que ENGINE.V9.py est bien dans le repo.")
     st.stop()
+
+run_pipeline = _engine.run_pipeline
 
 # ── Config page ───────────────────────────────────────────────────────────
 st.set_page_config(
