@@ -980,11 +980,14 @@ _INLINE_TEMPLATE = """<!DOCTYPE html>
 :root{
   --royal:#1B45B4;--royal-mid:#2355C3;--royal-light:#E8EEFF;--royal-dim:#6B89D8;
   --bg:#f5f7fc;--white:#fff;--card:#f0f3fa;--dark:#0d1f4e;--body:#1a1a2e;--sec:#3a4a7a;--muted:#6B89D8;--th:#E8EEFF;
+  --amber:#1B45B4;--amb-bg:#E8EEFF;--amb-bd:#6B89D8;--amb-tx:#0d1f4e;
   --green:#1a7a4a;--grn-bg:#e8f5ee;--grn-bd:#6EE7B7;--grn-tx:#065F46;
+  --long:#1a7a4a;--lng-bg:#e8f5ee;--lng-bd:#6EE7B7;--lng-tx:#065F46;
+  --yellow:#1B45B4;--yel-bg:#E8EEFF;--yel-bd:#6B89D8;--yel-tx:#0d1f4e;
   --red:#c0292a;--red-bg:#fdecea;--red-bd:#FCA5A5;--red-tx:#7F1D1D;
-  --sht-bg:#fdecea;--sht-bd:#FCA5A5;--sht-tx:#7F1D1D;
-  --long-bg:#e8f5ee;--long-bd:#6EE7B7;--long-tx:#065F46;
+  --short:#c0292a;--sht-bg:#fdecea;--sht-bd:#FCA5A5;--sht-tx:#7F1D1D;
   --blue:#2355C3;--blu-bg:#E8EEFF;--blu-bd:#6B89D8;--purple:#1B45B4;
+  --orange:#2355C3;--org-bg:#E8EEFF;--org-bd:#6B89D8;
   --border:#dde3f5;--border2:#bbc6e8;--r:6px;--rl:8px;--gap:16px;
   --sans:'IBM Plex Sans',system-ui,sans-serif;--mono:'IBM Plex Mono','SF Mono','Courier New',monospace
 }
@@ -996,6 +999,7 @@ body{background:var(--bg);color:var(--body);font-family:var(--sans);font-size:13
 .sec-hdr{display:flex;align-items:center;gap:12px;padding:11px 18px;border-bottom:1px solid var(--border);background:var(--white)}
 .sec-num{width:26px;height:26px;border-radius:50%;background:var(--royal);color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-family:var(--mono)}
 .sec-ttl{font-size:13px;font-weight:700;color:var(--dark);text-transform:uppercase;letter-spacing:.5px;font-family:var(--mono)}
+.sec-sub{margin-left:auto;font-size:10px;color:var(--muted);font-style:italic}
 .sec-body{padding:14px 18px}
 .setup{border:1px solid var(--border);border-radius:var(--rl);overflow:hidden;margin-bottom:14px}
 .setup.aaa{border-left:3px solid var(--royal)}.setup.aa{border-left:3px solid var(--royal-mid)}.setup.a{border-left:3px solid var(--green)}.setup.bbb{border-left:3px solid var(--muted)}
@@ -1012,6 +1016,11 @@ body{background:var(--bg);color:var(--body);font-family:var(--sans);font-size:13
 .conv.bbb{background:var(--card);border:1px solid var(--border2);color:var(--sec)}
 .scen-lbl{margin-left:auto;font-size:10px;color:var(--muted);font-family:var(--mono)}
 .setup-body{padding:14px 18px;background:var(--white)}
+.badge,.bdg{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:4px;font-size:9px;font-weight:700;border:1px solid transparent;font-family:var(--mono)}
+.badge-red{background:var(--red-bg);border-color:var(--red-bd);color:var(--red-tx)}
+.badge-green{background:var(--grn-bg);border-color:var(--grn-bd);color:var(--grn-tx)}
+.badge-blue,.badge-yellow{background:var(--royal-light);border-color:var(--royal-dim);color:var(--royal)}
+.bdg-sys{background:var(--royal-light);border-color:var(--royal-dim);color:var(--royal)}
 .metrics-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(100px,1fr));gap:6px;margin-bottom:14px;padding:10px;background:var(--card);border:1px solid var(--border);border-radius:var(--r)}
 .metric{text-align:center;padding:4px 0}
 .metric-lbl{font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;font-family:var(--mono);margin-bottom:2px}
@@ -1020,7 +1029,7 @@ body{background:var(--bg);color:var(--body);font-family:var(--sans);font-size:13
 .px-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px;margin-bottom:14px}
 .px-card{background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:10px 12px;text-align:center}
 .px-card.entry{border-top:2px solid var(--royal)}.px-card.sl{border-top:2px solid var(--red)}.px-card.tp1{border-top:2px solid var(--green)}.px-card.tp2{border-top:2px solid var(--royal-mid)}.px-card.rr{border-top:2px solid var(--royal-dim)}
-.px-lbl{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;font-weight:600;margin-bottom:3px;font-family:var(--mono)}
+.px-lbl{font-size:8px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;font-weight:600;margin-bottom:3px;font-family:var(--mono)}
 .px-val{font-size:16px;font-weight:700;font-family:var(--mono)}
 .px-sub{font-size:9px;color:var(--muted);margin-top:2px}
 .rationale{background:var(--royal-light);border-left:3px solid var(--royal);padding:10px 14px;font-size:12px;color:var(--dark);margin-bottom:12px;line-height:1.6;border-radius:var(--r)}
@@ -1028,30 +1037,40 @@ body{background:var(--bg);color:var(--body);font-family:var(--sans);font-size:13
 .cal-row{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--sec);margin-bottom:12px}
 .cal-ok,.cal-prox,.cal-sus,.cal-watch{padding:2px 8px;border-radius:4px;font-size:10px;font-weight:700;font-family:var(--mono)}
 .cal-ok{background:var(--grn-bg);border:1px solid var(--grn-bd);color:var(--grn-tx)}
-.cal-watch{background:#FFF7ED;border:1px solid #FED7AA;color:#EA580C}
+.cal-watch{background:var(--royal-light);border:1px solid var(--royal-dim);color:var(--royal-mid)}
 .cal-prox{background:var(--royal-light);border:1px solid var(--royal-dim);color:var(--royal-mid)}
 .cal-sus{background:var(--red-bg);border:1px solid var(--red-bd);color:var(--red-tx)}
 .brief{background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:12px 16px;margin-bottom:10px}
-.brief-hdr{display:flex;align-items:center;gap:10px;margin-bottom:10px;font-family:var(--mono)}
+.brief-hdr{display:flex;align-items:center;gap:8px;margin-bottom:8px}
 .brief-grid{display:grid;grid-template-columns:140px 1fr;gap:4px 12px;font-size:12px}
 .brief-lbl{font-weight:700;color:var(--muted);font-size:9px;text-transform:uppercase;letter-spacing:.6px;padding-top:2px;font-family:var(--mono)}
-.sub-lbl{font-size:10px;font-weight:700;color:var(--royal);text-transform:uppercase;letter-spacing:1px;margin:14px 0 8px;font-family:var(--mono)}
+.sub-lbl{font-size:9px;font-weight:700;color:var(--royal);text-transform:uppercase;letter-spacing:1px;margin:12px 0 8px;font-family:var(--mono)}
+.sub-lbl:first-child{margin-top:0}
 .elim{background:var(--card);border:1px solid var(--border);border-left:3px solid var(--border2);border-radius:var(--r);padding:10px 14px;margin-bottom:8px;display:flex;align-items:flex-start;gap:12px}
 .elim.sus{border-left-color:var(--red);background:var(--red-bg)}.elim.corr{border-left-color:var(--royal)}.elim.tent{border-left-color:var(--royal-mid);background:var(--royal-light)}
 .elim-pair{font-size:13px;font-weight:700;font-family:var(--mono);color:var(--sec);min-width:90px;flex-shrink:0}
 .elim-txt{font-size:11px;color:var(--muted)}
-.empty{padding:14px;color:var(--muted);font-style:italic;font-size:12px}
-.hr-div{border:none;border-top:1px solid var(--border);margin:14px 0}
+hr.div{border:none;border-top:1px solid var(--border);margin:10px 0}
 table{width:100%;border-collapse:collapse;font-size:12px}
-thead tr{background:#0d1f4e}
+thead tr{background:var(--royal)!important}
 thead th{padding:8px 12px;text-align:left;font-size:9px;font-weight:700;color:#fff;letter-spacing:1px;text-transform:uppercase;white-space:nowrap;font-family:var(--mono)}
 tbody tr{border-bottom:1px solid var(--border)}
 tbody tr:nth-child(even){background:var(--card)}
 tbody td{padding:7px 12px;vertical-align:middle}
 .no-setup{background:var(--card);border:2px dashed var(--border2);border-radius:var(--rl);padding:40px 20px;text-align:center}
 .no-setup-icon{font-size:36px;margin-bottom:12px}.no-setup-title{font-size:16px;font-weight:700;color:var(--dark);margin-bottom:6px}.no-setup-sub{font-size:12px;color:var(--muted);font-family:var(--mono)}
-.footer{text-align:center;font-family:var(--mono);font-size:9px;color:var(--muted);border-top:1px solid var(--border);padding:10px 24px;margin-top:4px;letter-spacing:1px}
-.page-header{background:linear-gradient(135deg,#F8FAFF 0%,#F0F4FE 100%);border:1px solid var(--border);border-radius:var(--rl) var(--rl) 0 0;display:flex;align-items:center;justify-content:space-between;padding:14px 28px;position:relative}
+.reject-code{font-family:var(--mono);font-size:10px;font-weight:700;color:var(--red)}
+.audit-block{background:#0d1f4e;color:#E8EEFF;border-radius:var(--r);padding:10px 14px;margin-top:12px;font-family:var(--mono);font-size:10px;line-height:1.6;word-break:break-word}
+.audit-block strong{color:#6EE7B7;font-size:9px;text-transform:uppercase;letter-spacing:1px;display:block;margin-bottom:4px}
+.footer{text-align:center;font-family:var(--mono);font-size:8px;color:var(--muted);border-top:1px solid var(--border);padding:10px 24px;margin-top:4px;letter-spacing:1.5px}
+.page-header{
+  background:linear-gradient(135deg,#F8FAFF 0%,#F0F4FE 100%);
+  border:1px solid var(--border);border-radius:var(--rl) var(--rl) 0 0;
+  display:flex;align-items:center;justify-content:space-between;
+  padding:14px 28px;margin-bottom:0;
+  box-shadow:0 2px 6px rgba(0,0,0,.02),inset 0 1px 0 rgba(255,255,255,.8);
+  position:relative;
+}
 .page-header::after{content:'';position:absolute;bottom:0;left:24px;right:24px;height:2px;background:linear-gradient(90deg,var(--royal),var(--royal-dim),transparent);border-radius:2px}
 .header-left{display:flex;align-items:center;gap:16px}
 .logo-marker{width:36px;height:36px;display:flex;align-items:center;justify-content:center;flex-shrink:0;background:var(--white);border:1px solid var(--border);border-radius:var(--r)}
@@ -1063,13 +1082,13 @@ tbody td{padding:7px 12px;vertical-align:middle}
 .briefing-sub{font-size:9px;color:var(--sec);font-family:var(--mono);margin-top:4px;letter-spacing:.02em}
 .page-subbar{background:rgba(27,69,180,.04);border-left:1px solid var(--border);border-right:1px solid var(--border);border-bottom:1px solid var(--border);padding:8px 28px;display:flex;align-items:center;gap:28px;flex-wrap:wrap;font-size:10px;font-family:var(--mono);color:var(--sec)}
 .confidential{margin-left:auto;color:var(--royal);font-weight:600;background:rgba(27,69,180,.08);padding:2px 10px;border-radius:20px;font-size:9px}
-.audit-block{background:#0d1f4e;color:#E8EEFF;border-radius:var(--r);padding:10px 14px;margin-top:12px;font-family:var(--mono);font-size:10px;line-height:1.6;word-break:break-word}
-.audit-block strong{color:#6EE7B7;font-size:9px;text-transform:uppercase;letter-spacing:1px;display:block;margin-bottom:4px}
-.reject-code{font-family:var(--mono);font-size:10px;font-weight:700;color:var(--red)}
 @media print{
   @page{margin:10mm;size:A4 portrait}
   *{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}
   body{background:#fff!important;font-size:11px}
+  .page-header{background:#F8FAFF!important;border:1px solid var(--border)!important}
+  .page-subbar{background:#f5f7fc!important}
+  thead tr{background:var(--royal)!important}
   table{page-break-inside:auto;width:100%!important}
   tr{page-break-inside:avoid}
   .section{margin-bottom:10px;break-inside:auto!important}
@@ -1080,15 +1099,15 @@ tbody td{padding:7px 12px;vertical-align:middle}
   #pdf-fab{display:none!important}
 }
 #pdf-fab{position:fixed;bottom:28px;right:28px;z-index:9999;display:flex;flex-direction:column;align-items:flex-end;gap:8px}
-#pdf-fab button{background:#1B45B4;color:#fff;border:none;padding:11px 20px;border-radius:8px;font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:700;cursor:pointer;letter-spacing:.06em;display:flex;align-items:center;gap:8px;box-shadow:0 4px 20px rgba(27,69,180,.35)}
+#pdf-fab button{background:#1B45B4;color:#fff;border:none;padding:11px 20px;border-radius:8px;font-family:'IBM Plex Mono','Courier New',monospace;font-size:12px;font-weight:700;cursor:pointer;letter-spacing:.06em;box-shadow:0 4px 16px rgba(27,69,180,.45);display:flex;align-items:center;gap:8px;transition:background .15s}
 #pdf-fab button:hover{background:#2355C3}
-#pdf-fab small{font-size:9px;color:rgba(0,0,0,.6);font-family:monospace;text-align:right;background:#fff;padding:4px 8px;border-radius:4px;border:1px solid var(--border)}
+#pdf-fab small{font-size:9px;color:rgba(255,255,255,.7);font-family:monospace;text-align:right}
 </style>
 </head>
 <body>
 
 <div id="pdf-fab">
-  <button onclick="window.print()">&#8659; Télécharger PDF</button>
+  <button onclick="window.print()">&#128229; Télécharger PDF</button>
   <small>Chrome → Enregistrer en PDF<br>Activer "Graphiques d'arrière-plan"</small>
 </div>
 
@@ -1096,7 +1115,7 @@ tbody td{padding:7px 12px;vertical-align:middle}
 <div class="page-header">
   <div class="header-left">
     <div class="logo-marker">
-      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <svg width="30" height="30" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
         <path d="M12 17.27L18.18 21L16.54 13.97L22 9.24L14.81 8.63L12 2L9.19 8.63L2 9.24L7.46 13.97L5.82 21L12 17.27Z" fill="#1B45B4"/>
       </svg>
     </div>
@@ -1116,8 +1135,8 @@ tbody td{padding:7px 12px;vertical-align:middle}
   <span>GMT+1</span>
   <span style="background:rgba(27,69,180,.12);color:var(--royal);padding:2px 10px;border-radius:20px;font-weight:700;border:1px solid var(--royal-dim)">{{n_setups}} setup(s)</span>
   <span>Universe <strong>{{n_passed}}/{{n_total}}</strong></span>
-  <span>Event Risk : <strong style="color:{% if event_risk == 'High' %}var(--red){% elif event_risk == 'Medium' %}#EA580C{% else %}var(--green){% endif %}">{{event_risk}}</strong></span>
-  {% if themes %}<span>Thèmes: {{themes}}</span>{% endif %}
+  <span>Event Risk : <strong style="color:{% if event_risk == 'High' %}var(--red){% elif event_risk == 'Medium' %}#EA580C{% else %}var(--green){% endif %}">{{event_risk}}</strong></span>
+  {% if themes %}<span>Thèmes : {{themes}}</span>{% endif %}
   <span class="confidential">CONFIDENTIEL</span>
 </div>
 
@@ -1125,7 +1144,7 @@ tbody td{padding:7px 12px;vertical-align:middle}
 
 <!-- ═══ SECTION 1 — SETUPS VALIDES ═══ -->
 <div class="section">
-  <div class="sec-hdr"><div class="sec-num">1</div><div class="sec-ttl">Setups Valides</div></div>
+  <div class="sec-hdr"><div class="sec-num">1</div><div class="sec-ttl">Setups Valides</div><div class="sec-sub">{{n_setups}} setup(s) validé(s) · Universe {{n_passed}}/{{n_total}}</div></div>
   <div class="sec-body">
   {% if setups %}
   {% for s in setups %}
@@ -1156,14 +1175,14 @@ tbody td{padding:7px 12px;vertical-align:middle}
         <div class="px-card sl"><div class="px-lbl">Stop Loss</div><div class="px-val" style="color:var(--red)">{{s.sl}}</div><div class="px-sub">{{s.sl_atr_multiple|round(1)}}×ATR</div></div>
         <div class="px-card tp1"><div class="px-lbl">TP1 (60%)</div><div class="px-val" style="color:var(--green)">{{s.tp1}}</div><div class="px-sub">{% if s.tp1_atr_multiple %}{{s.tp1_atr_multiple}}×ATR{% else %}synth{% endif %}</div></div>
         <div class="px-card tp2"><div class="px-lbl">TP2 (40%)</div><div class="px-val" style="color:var(--blue)">{{s.tp2 if s.tp2 else '—'}}</div><div class="px-sub">{% if s.tp2_atr_multiple %}{{s.tp2_atr_multiple}}×ATR{% else %}synth{% endif %}</div></div>
-        <div class="px-card rr"><div class="px-lbl">R:R</div><div class="px-val" style="color:var(--purple)">{{s.rr|round(2)}}</div><div class="px-sub">pondéré 60/40</div></div>
+        <div class="px-card rr"><div class="px-lbl">R : R</div><div class="px-val" style="color:var(--purple)">{{s.rr|round(2)}}</div><div class="px-sub">pondéré 60/40</div></div>
       </div>
       <div class="rationale"><strong>Rationale</strong>{{s.rationale}}{% if s.cal_note %} · <em>{{s.cal_note}}</em>{% endif %}</div>
       <div class="cal-row">
         <span class="cal-{{s.cal_status.value|lower}}">{{s.cal_status.value}}</span>
         {% if s.cal_note %}<span>{{s.cal_note}}</span>{% endif %}
       </div>
-      <div class="audit-block"><strong>Audit Trail</strong>{{s.sl_detail}}<br>{{s.rr_detail}}<br>{{s.conviction_breakdown}}<br>ATR_source={{s.atr_source}} · scenario={{s.scenario.value}} · htf_aligned={{s.htf_aligned}}</div>
+      <div class="audit-block"><strong>Audit Trail</strong>{{s.sl_detail}}<br>{{s.rr_detail}}<br>{{s.conviction_breakdown}}<br>ATR={{s.atr_source}} · scenario={{s.scenario.value}} · htf={{s.htf_aligned}}</div>
     </div>
   </div>
   {% endfor %}
@@ -1171,7 +1190,7 @@ tbody td{padding:7px 12px;vertical-align:middle}
   <div class="no-setup">
     <div class="no-setup-icon">∅</div>
     <div class="no-setup-title">Aucun setup conforme aujourd'hui</div>
-    <div class="no-setup-sub">Event Risk: {{event_risk}} · Universe {{n_passed}}/{{n_total}}</div>
+    <div class="no-setup-sub">Event Risk : {{event_risk}} · Universe {{n_passed}}/{{n_total}}</div>
   </div>
   {% endif %}
   </div>
@@ -1180,7 +1199,7 @@ tbody td{padding:7px 12px;vertical-align:middle}
 <!-- ═══ SECTION 2 — BRIEF TRADER ═══ -->
 {% if setups %}
 <div class="section">
-  <div class="sec-hdr"><div class="sec-num">2</div><div class="sec-ttl">Brief Trader</div></div>
+  <div class="sec-hdr"><div class="sec-num">2</div><div class="sec-ttl">Brief Trader</div><div class="sec-sub">Fiche opérationnelle par setup</div></div>
   <div class="sec-body">
   {% for s in setups %}
   {% set dc = 'long' if s.direction.value == 'Bullish' else 'short' %}
@@ -1193,15 +1212,16 @@ tbody td{padding:7px 12px;vertical-align:middle}
     </div>
     <div class="brief-grid">
       <span class="brief-lbl">Scénario</span><span>{{s.scenario.value}}</span>
-      <span class="brief-lbl">Entry</span><span>{{s.entry}} ({{s.entry_type}})</span>
-      <span class="brief-lbl">SL / TP</span><span>SL {{s.sl}} · TP1 {{s.tp1}}{% if s.tp2 %} · TP2 {{s.tp2}}{% endif %}</span>
-      <span class="brief-lbl">R:R</span><span>{{s.rr|round(2)}} (pondéré 60/40)</span>
+      <span class="brief-lbl">Entry</span><span style="font-family:var(--mono);font-weight:700;color:var(--royal)">{{s.entry}}</span>
+      <span class="brief-lbl">Stop Loss</span><span style="font-family:var(--mono);font-weight:700;color:var(--red)">{{s.sl}} &nbsp;<span style="font-size:10px;color:var(--muted)">({{s.sl_atr_multiple|round(1)}}×ATR)</span></span>
+      <span class="brief-lbl">TP1 / TP2</span><span style="font-family:var(--mono);font-weight:700;color:var(--green)">{{s.tp1}} {% if s.tp2 %}/ <span style="color:var(--blue)">{{s.tp2}}</span>{% endif %}</span>
+      <span class="brief-lbl">R : R</span><span style="font-family:var(--mono);font-weight:700;color:var(--purple)">{{s.rr|round(2)}} <span style="font-size:10px;color:var(--muted)">(pondéré 60/40)</span></span>
       <span class="brief-lbl">Calendrier</span><span><span class="cal-{{s.cal_status.value|lower}}">{{s.cal_status.value}}</span>{% if s.cal_note %} — {{s.cal_note}}{% endif %}</span>
-      <span class="brief-lbl">RSI H4</span><span>{{s.rsi_h4|round(1) if s.rsi_h4 else '—'}} ({{s.rsi_h4_status or '—'}})</span>
+      <span class="brief-lbl">RSI H4</span><span>{{s.rsi_h4|round(1) if s.rsi_h4 else '—'}} <span style="font-size:10px;color:var(--muted)">({{s.rsi_h4_status or '—'}})</span></span>
       <span class="brief-lbl">Age trend</span><span>{{s.age_d1}}j</span>
       <span class="brief-lbl">HTF aligné</span><span>{{s.htf_aligned}}</span>
-      <span class="brief-lbl">SL formule</span><span>{{s.sl_detail}}</span>
-      <span class="brief-lbl">RR formule</span><span>{{s.rr_detail}}</span>
+      <span class="brief-lbl">SL formule</span><span style="font-size:11px;color:var(--sec)">{{s.sl_detail}}</span>
+      <span class="brief-lbl">RR formule</span><span style="font-size:11px;color:var(--sec)">{{s.rr_detail}}</span>
     </div>
   </div>
   {% endfor %}
@@ -1211,9 +1231,8 @@ tbody td{padding:7px 12px;vertical-align:middle}
 
 <!-- ═══ SECTION 3 — ÉLIMINÉS & SURVEILLANCE ═══ -->
 <div class="section">
-  <div class="sec-hdr"><div class="sec-num">{% if setups %}3{% else %}2{% endif %}</div><div class="sec-ttl">Éliminés & Surveillance ({{elimines|length}})</div></div>
+  <div class="sec-hdr"><div class="sec-num">{% if setups %}3{% else %}2{% endif %}</div><div class="sec-ttl">Éliminés &amp; Surveillance</div><div class="sec-sub">{{elimines|length}} actif(s) filtré(s)</div></div>
   <div class="sec-body">
-
   {% set suspendus = elimines | selectattr('reject_code', 'equalto', 'CAL_BLACKOUT') | list %}
   {% set correls = elimines | selectattr('reject_code', 'equalto', 'CORRELATED_OUT') | list %}
   {% set rejets = elimines | rejectattr('reject_code', 'equalto', 'CAL_BLACKOUT') | rejectattr('reject_code', 'equalto', 'CORRELATED_OUT') | list %}
@@ -1224,12 +1243,12 @@ tbody td{padding:7px 12px;vertical-align:middle}
   <div class="elim sus">
     <span class="elim-pair">{{e.symbol}}</span>
     <div>
-      <span class="cal-sus" style="margin-bottom:4px;display:inline-flex">BLACKOUT</span>
-      <div class="elim-txt">{{e.reject_detail}} · RSI H4: {{e.rsi_h4|round(2) if e.rsi_h4 else '—'}} · Age: {{e.age_d1}}j</div>
+      <span class="cal-sus" style="display:inline-flex;margin-bottom:4px">BLACKOUT</span>
+      <div class="elim-txt">{{e.reject_detail}} · RSI H4 : {{e.rsi_h4|round(2) if e.rsi_h4 else '—'}} · Age : {{e.age_d1}}j</div>
     </div>
   </div>
   {% endfor %}
-  <hr class="hr-div">
+  <hr class="div">
   {% endif %}
 
   {% if correls %}
@@ -1240,7 +1259,7 @@ tbody td{padding:7px 12px;vertical-align:middle}
     <div class="elim-txt">{{e.reject_detail}}</div>
   </div>
   {% endfor %}
-  <hr class="hr-div">
+  <hr class="div">
   {% endif %}
 
   {% if rejets %}
@@ -1265,13 +1284,12 @@ tbody td{padding:7px 12px;vertical-align:middle}
   {% endif %}
 
   {% if not elimines %}
-  <div class="empty">Aucun actif éliminé ce cycle.</div>
+  <div style="padding:14px;color:var(--muted);font-style:italic;font-size:12px">Aucun actif éliminé ce cycle.</div>
   {% endif %}
   </div>
 </div>
 
 </div><!-- .wrap -->
-
 <div class="footer">CONFIDENTIEL · BLUESTAR SYSTEM v9.1 DETERMINISTIC · {{date_hdr}} · MAX {{max_setups}} SETUPS · RR ∈ [{{rr_min}}, {{rr_max}}]</div>
 </div><!-- #page -->
 </body></html>"""
