@@ -2,25 +2,25 @@
 BLUESTAR ENGINE v10 — Hybrid Absolute/Cross-Sectional (V4 architecture)
 ========================================================================
 Single-file monolithic engine. Source of truth = merged JSON.
-Reuses the robust v9 backbone (Pydantic validation, graceful degraded mode,
-tiered calendar, synthetic-ATR cap, preflight, audit trail) and REPLACES the
-additive 13-component scoring with the V4 factor engine:
 
-  - 7 orthogonal bounded factors (F1 HWA, F2 RMG, F3 EXT, F4 TRG, F5 XCTX,
-    F6 THEME, F7 MACRO), each scored in [0,1] with intrinsic meaning.
-  - Equal-weight absolute mean -> CONVICTION (absolute thresholds AAA..B).
-  - Cross-sectional quantile used ONLY for tie-breaking and diversification,
-    NEVER for conviction (the hybrid invariant).
-  - Contradictions C1..C5 (minor/major) feeding the grading grid.
-  - Hard vetos -> caps (synthetic ATR -> BBB, macro risk -> AA) -> grid.
-  - Diversification by risk cluster BEFORE top-N (corrects v9 greedy tail).
+Pipeline logique INCHANGÉ vs version précédente (Pydantic, mode dégradé,
+calendrier tiéré, ATR synthétique, preflight, audit trail, 7 facteurs V4,
+moyenne absolue -> conviction, quantile -> tie-break/diversification).
 
-Pipeline is linear and pure; every section is testable in isolation.
+NOUVEAUTÉ (couche rendu uniquement) :
+  - Génération PDF NATIVE via WeasyPrint (moteur HTML/CSS->PDF maîtrisé)
+    => document A4 calibré, marges uniformes, en-tête/pied paginés,
+       anti-coupure des cartes (break-inside), échelle typographique cohérente.
+  - Le HTML interactif reste disponible ; le bouton "print" est conservé
+    en repli si WeasyPrint n'est pas installé.
 
 Usage:
+  # HTML
   python v10.py --merged merge.json --calendar-json calendar.json -o report.html
-  from v10 import run_pipeline
-  html = run_pipeline(merged_path="merge.json", calendar_json_path="calendar.json")
+  # PDF natif calibré
+  python v10.py --merged merge.json --calendar-json calendar.json --pdf report.pdf
+  # API
+  from v10 import run_pipeline, render_pdf
 """
 from __future__ import annotations
 
@@ -50,6 +50,13 @@ try:  # pragma: no cover
     _HAS_UPSTREAM = True
 except Exception:
     _HAS_UPSTREAM = False
+
+# Optional PDF backend — native, calibrated rendering. Never blocking at import.
+try:  # pragma: no cover
+    from weasyprint import HTML as _WeasyHTML  # type: ignore
+    _HAS_WEASYPRINT = True
+except Exception:
+    _HAS_WEASYPRINT = False
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -1356,6 +1363,7 @@ def run_pipeline(
     calendar_path: Optional[str] = None,
     calendar_json_path: Optional[str] = None,
     output_path: Optional[str] = None,
+    pdf_path: Optional[str] = None,
     config: V4Config = CONFIG,
 ) -> str:
     # 1 — ingestion
@@ -1421,12 +1429,15 @@ def run_pipeline(
     non_reps = [s for s in ranked if s.symbol not in final_syms]
     eliminated.extend(_eliminated_from_setups(non_reps))
 
-    # 12 — render
+    # 12 — render (HTML)
     html = render_report(final, eliminated, meta, clock, cal_sets, themes,
                          n_passed=len(universe.passed), cfg=config)
     if output_path:
         with open(output_path, "w", encoding="utf-8") as f:
             f.write(html)
+    # 12b — render (PDF natif calibré) — optionnel, jamais bloquant
+    if pdf_path:
+        render_pdf(html, pdf_path)
     return html
 
 
@@ -1481,8 +1492,19 @@ def load_calendar(calendar_json_path: Optional[str]) -> CalendarData:
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# SECTION 16 — RENDER  (v9 template extended with V4 factor/flag sections)
+# SECTION 16 — RENDER  (template calibré + média print A4 maîtrisé)
 # ════════════════════════════════════════════════════════════════════════════
+# DESIGN NOTE — PDF calibration:
+#   Le calibrage repose sur 3 leviers, tous dans le CSS @media print ci-dessous,
+#   activés à l'identique par WeasyPrint (PDF natif) ET par l'impression
+#   navigateur (repli) :
+#     1. @page : A4 portrait, marges UNIFORMES (12mm), en-tête/pied paginés
+#        via @top-center / @bottom-center + compteur de page.
+#     2. Échelle typographique en unités relatives stables (pas de px flottants)
+#        pour un rendu proportionnel identique quel que soit le moteur.
+#     3. break-inside:avoid sur .section / .setup / table-row + orphans/widows
+#        pour empêcher les cartes coupées entre deux pages (cause n°1 du rendu
+#        "pas pro").
 _INLINE_TEMPLATE = """<!DOCTYPE html>
 <html lang="fr">
 <head>
@@ -1553,9 +1575,9 @@ body{background:var(--bg);color:var(--body);font-family:var(--sans);font-size:12
 .cap-note{font-size:9.5px;color:var(--red);font-family:var(--mono);font-weight:600;margin-bottom:8px}
 .cluster-tag{font-size:9px;font-family:var(--mono);color:var(--sec);background:var(--card);border:1px solid var(--border2);padding:1px 7px;border-radius:4px}
 .cal-row{display:flex;align-items:center;gap:8px;font-size:10.5px;color:var(--sec);margin-bottom:10px}
-.cal-ok,.cal-prox,.cal-blackout,.cal-watch{padding:2px 8px;border-radius:4px;font-size:9.5px;font-weight:700;font-family:var(--mono)}
+.cal-ok,.cal-prox,.cal-proximity,.cal-blackout,.cal-watch{padding:2px 8px;border-radius:4px;font-size:9.5px;font-weight:700;font-family:var(--mono)}
 .cal-ok{background:var(--grn-bg);border:1px solid var(--grn-bd);color:var(--grn-tx)}
-.cal-watch,.cal-prox{background:var(--royal-light);border:1px solid var(--royal-dim);color:var(--royal-mid)}
+.cal-watch,.cal-prox,.cal-proximity{background:var(--royal-light);border:1px solid var(--royal-dim);color:var(--royal-mid)}
 .cal-blackout{background:var(--red-bg);border:1px solid var(--red-bd);color:var(--red-tx)}
 .sub-lbl{font-size:8.5px;font-weight:700;color:var(--royal);text-transform:uppercase;letter-spacing:1px;margin:11px 0 7px;font-family:var(--mono)}
 .sub-lbl:first-child{margin-top:0}
@@ -1588,7 +1610,57 @@ tbody td{padding:5px 10px;vertical-align:middle}
 .briefing-sub{font-size:8.5px;color:var(--sec);font-family:var(--mono);margin-top:4px;letter-spacing:.02em}
 .page-subbar{background:rgba(27,69,180,.04);border-left:1px solid var(--border);border-right:1px solid var(--border);border-bottom:1px solid var(--border);padding:7px 24px;display:flex;align-items:center;gap:22px;flex-wrap:wrap;font-size:9.5px;font-family:var(--mono);color:var(--sec)}
 .confidential{margin-left:auto;color:var(--royal);font-weight:600;background:rgba(27,69,180,.08);padding:2px 10px;border-radius:20px;font-size:8.5px}
-@media print{@page{margin:8mm 7mm;size:A4 portrait}*{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}body{background:#fff!important;font-size:9.5px!important}.section{break-inside:avoid!important}.setup{break-inside:avoid!important}#pdf-fab{display:none!important}}
+
+/* ═══════════════ PDF / PRINT — CALIBRAGE A4 MAÎTRISÉ ═══════════════
+   Levier 1 : page A4 + marges uniformes + en-tête/pied paginés.
+   Levier 2 : largeur de contenu fixée à la zone imprimable (pas de scale).
+   Levier 3 : anti-coupure (break-inside) + orphans/widows.                */
+@page{
+  size:A4 portrait;
+  margin:14mm 12mm 16mm 12mm;
+  @top-center{
+    content:"BLUESTAR · FX CASCADE — {{date_hdr}}";
+    font-family:'IBM Plex Mono',monospace;font-size:7pt;color:#6B89D8;letter-spacing:.12em;
+  }
+  @bottom-left{
+    content:"CONFIDENTIEL";
+    font-family:'IBM Plex Mono',monospace;font-size:6.5pt;color:#6B89D8;letter-spacing:.12em;
+  }
+  @bottom-center{
+    content:"BLUESTAR SYSTEM v10 HYBRID V4";
+    font-family:'IBM Plex Mono',monospace;font-size:6.5pt;color:#6B89D8;letter-spacing:.12em;
+  }
+  @bottom-right{
+    content:"Page " counter(page) " / " counter(pages);
+    font-family:'IBM Plex Mono',monospace;font-size:6.5pt;color:#6B89D8;letter-spacing:.1em;
+  }
+}
+@media print{
+  *{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}
+  html,body{background:#fff!important}
+  body{font-size:8.6pt!important;line-height:1.42!important}
+  /* contenu calé sur la zone imprimable -> proportions identiques, jamais de mise à l'échelle */
+  #page{max-width:none!important;width:100%!important;margin:0!important;background:#fff!important}
+  .wrap{padding:0!important}
+  /* en-tête de doc : visible seulement sur la 1re page, le reste passe en marge @page */
+  .page-header{border-radius:6px 6px 0 0!important;box-shadow:none!important;padding:10px 16px!important}
+  .page-subbar{box-shadow:none!important;padding:6px 16px!important;gap:14px!important}
+  /* anti-coupure — cause n°1 d'un PDF "pas pro" */
+  .section{break-inside:avoid!important;page-break-inside:avoid!important;box-shadow:none!important;margin-bottom:8px!important}
+  .setup{break-inside:avoid!important;page-break-inside:avoid!important;box-shadow:none!important}
+  .setup-body{padding:9px 14px!important}
+  .factor-grid,.metrics-grid,.px-grid{break-inside:avoid!important;page-break-inside:avoid!important}
+  .rationale,.audit-block,.banner,.cal-row,.flags-row{break-inside:avoid!important;page-break-inside:avoid!important}
+  .sec-hdr,.setup-hdr{break-after:avoid!important;page-break-after:avoid!important}
+  .sub-lbl{break-after:avoid!important;page-break-after:avoid!important}
+  tr,thead{break-inside:avoid!important;page-break-inside:avoid!important}
+  thead{display:table-header-group!important}            /* en-têtes de table répétés */
+  tfoot{display:table-footer-group!important}
+  p,li{orphans:3;widows:3}
+  .footer{display:none!important}                          /* remplacé par @page @bottom-* */
+  #pdf-fab{display:none!important}
+  a[href]:after{content:""!important}                      /* pas d'URLs parasites */
+}
 #pdf-fab{position:fixed;bottom:28px;right:28px;z-index:9999}
 #pdf-fab button{background:#1B45B4;color:#fff;border:none;padding:11px 20px;border-radius:8px;font-family:var(--mono);font-size:12px;font-weight:700;cursor:pointer;box-shadow:0 4px 16px rgba(27,69,180,.45)}
 </style>
@@ -1737,6 +1809,36 @@ def render_report(setups: list[SetupV4], eliminated: list[Eliminated], meta: Mer
     )
 
 
+def render_pdf(html: str, pdf_path: str, base_url: Optional[str] = None) -> str:
+    """Génère un PDF natif CALIBRÉ depuis le HTML via WeasyPrint.
+
+    WeasyPrint applique le bloc @page + @media print du template (A4, marges
+    uniformes, en-tête/pied paginés, anti-coupure des cartes), produisant un
+    document proportionnel et professionnel — sans dépendre du print() navigateur.
+
+    Repli sûr : si WeasyPrint n'est pas installé, on écrit le HTML calibré et on
+    informe l'utilisateur d'utiliser le bouton "Télécharger PDF" (qui applique le
+    même CSS @page). Jamais bloquant.
+    """
+    if not _HAS_WEASYPRINT:
+        logger.warning(
+            "WeasyPrint indisponible — PDF non généré. "
+            "Installez-le (`pip install weasyprint`) pour un PDF natif calibré, "
+            "ou utilisez le bouton « Télécharger PDF » du HTML (même CSS @page).")
+        fallback_html = pdf_path
+        if fallback_html.lower().endswith(".pdf"):
+            fallback_html = fallback_html[:-4] + ".html"
+        with open(fallback_html, "w", encoding="utf-8") as f:
+            f.write(html)
+        logger.info("HTML calibré écrit en repli: %s", fallback_html)
+        return fallback_html
+    if base_url is None:
+        base_url = os.getcwd()
+    _WeasyHTML(string=html, base_url=base_url).write_pdf(pdf_path)
+    logger.info("PDF natif calibré généré: %s", pdf_path)
+    return pdf_path
+
+
 # ════════════════════════════════════════════════════════════════════════════
 # SECTION 17 — CLI
 # ════════════════════════════════════════════════════════════════════════════
@@ -1748,6 +1850,7 @@ def main() -> None:
     p.add_argument("--calendar-json", help="Path to pre-parsed calendar.json")
     p.add_argument("--config", help="Optional JSON config overrides")
     p.add_argument("--output", "-o", help="Output HTML path")
+    p.add_argument("--pdf", help="Output PDF path (PDF natif calibré via WeasyPrint)")
     args = p.parse_args()
 
     cfg = CONFIG
@@ -1760,11 +1863,13 @@ def main() -> None:
         calendar_path=args.calendar,
         calendar_json_path=args.calendar_json,
         output_path=args.output,
+        pdf_path=args.pdf,
         config=cfg,
     )
-    logger.info("Report generated: %d bytes%s", len(html),
-                f" → {args.output}" if args.output else "")
-    if not args.output:
+    logger.info("Report generated: %d bytes%s%s", len(html),
+                f" → {args.output}" if args.output else "",
+                f" (PDF → {args.pdf})" if args.pdf else "")
+    if not args.output and not args.pdf:
         print(html)
 
 
