@@ -6,9 +6,23 @@ import importlib.util
 import sys
 import tempfile
 import os
+import io
 from pathlib import Path
 
 import streamlit as st
+
+# ── WeasyPrint (PDF natif côté serveur) ──────────────────────────────────
+try:
+    from weasyprint import HTML as _WeasyHTML
+    _HAS_WEASYPRINT = True
+except Exception:
+    _HAS_WEASYPRINT = False
+
+def _html_to_pdf_bytes(html: str) -> bytes:
+    """Génère un PDF calibré en mémoire via WeasyPrint. Retourne les bytes."""
+    buf = io.BytesIO()
+    _WeasyHTML(string=html).write_pdf(buf)
+    return buf.getvalue()
 
 # ── Import du moteur (filename ENGINE.V9.py contient un point — import classique impossible) ──
 def _load_engine():
@@ -40,6 +54,12 @@ st.set_page_config(
 
 st.title("🔵 BLUESTAR ENGINE v9.1")
 st.caption("FX Institutional Desk · Deterministic DAG Pipeline")
+
+if not _HAS_WEASYPRINT:
+    st.warning(
+        "⚠️ WeasyPrint indisponible — seul le téléchargement HTML sera proposé. "
+        "Ajoute `weasyprint` dans requirements.txt et les libs système dans packages.txt."
+    )
 
 # ── Upload des fichiers ───────────────────────────────────────────────────
 col1, col2 = st.columns(2)
@@ -84,14 +104,34 @@ if merged_file and calendar_file:
                     # Affichage inline du HTML
                     st.components.v1.html(html, height=1800, scrolling=True)
 
-                    # Bouton de téléchargement
-                    st.download_button(
-                        label="⬇️ Télécharger le rapport HTML",
-                        data=html,
-                        file_name="bluestar_report.html",
-                        mime="text/html",
-                        use_container_width=True,
-                    )
+                    # ── Téléchargements ───────────────────────────────
+                    dl_col1, dl_col2 = st.columns(2)
+
+                    with dl_col1:
+                        st.download_button(
+                            label="⬇️ Télécharger le rapport HTML",
+                            data=html,
+                            file_name="bluestar_report.html",
+                            mime="text/html",
+                            use_container_width=True,
+                        )
+
+                    with dl_col2:
+                        if _HAS_WEASYPRINT:
+                            with st.spinner("Génération PDF…"):
+                                try:
+                                    pdf_bytes = _html_to_pdf_bytes(html)
+                                    st.download_button(
+                                        label="⬇️ Télécharger PDF (calibré)",
+                                        data=pdf_bytes,
+                                        file_name="bluestar_report.pdf",
+                                        mime="application/pdf",
+                                        use_container_width=True,
+                                    )
+                                except Exception as pdf_err:
+                                    st.error(f"Erreur PDF : {pdf_err}")
+                        else:
+                            st.info("PDF indisponible — WeasyPrint non installé.")
 
                 except Exception as e:
                     st.error(f"Erreur pipeline : {e}")
